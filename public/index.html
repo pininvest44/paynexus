@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PayNexus Bulk STK Push Bot</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f4f6f8; margin: 0; padding: 24px; }
+    .container { max-width: 680px; margin: 0 auto; background: #fff; padding: 28px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    h1 { font-size: 22px; margin-top: 0; color: #1a1a1a; }
+    label { display: block; font-weight: 600; margin-top: 16px; margin-bottom: 6px; font-size: 14px; }
+    input, textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+    textarea { height: 120px; font-family: monospace; resize: vertical; }
+    .hint { font-size: 12px; color: #666; margin-top: 4px; }
+    button { margin-top: 20px; width: 100%; background: #059669; color: white; border: none; padding: 12px; font-size: 16px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+    button:disabled { background: #a7f3d0; cursor: not-allowed; }
+    #log { margin-top: 24px; background: #0f172a; color: #38bdf8; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
+    .success { color: #4ade80; }
+    .error { color: #f87171; }
+    .info { color: #fbbf24; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>PayNexus STK Push Automation</h1>
+    
+    <label for="numbers">Phone Numbers (One per line or comma-separated):</label>
+    <textarea id="numbers" placeholder="254746990866&#10;0712345678&#10;+254700000000"></textarea>
+    <div class="hint">Formats supported: 2547XXXXXXXX, 07XXXXXXXX, +2547XXXXXXXX. Auto-converted to 254...</div>
+
+    <label for="amount">Amount (KES):</label>
+    <input type="number" id="amount" value="100" />
+
+    <label for="description">Order Description / Reference:</label>
+    <input type="text" id="description" value="Bulk Order Payment" />
+
+    <button id="startBtn" onclick="runBatch()">Start Batch STK Push</button>
+
+    <div id="log">Status logs will appear here...</div>
+  </div>
+
+  <script>
+    async function runBatch() {
+      const rawText = document.getElementById('numbers').value;
+      const amount = document.getElementById('amount').value;
+      const description = document.getElementById('description').value;
+      const btn = document.getElementById('startBtn');
+      const logDiv = document.getElementById('log');
+
+      const numbers = rawText.split(/[\n,]+/).map(n => n.trim()).filter(Boolean);
+
+      if (numbers.length === 0) {
+        alert('Please enter at least one phone number.');
+        return;
+      }
+
+      btn.disabled = true;
+      logDiv.innerHTML = `[INFO] Initializing batch process for ${numbers.length} numbers...\n`;
+
+      try {
+        const response = await fetch('/api/batch-stk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ numbers, amount, description })
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const text = decoder.decode(value);
+          const lines = text.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const event = JSON.parse(line.replace('data: ', ''));
+
+              if (event.type === 'start') {
+                logDiv.innerHTML += `<span class="info">[START] Processing ${event.total} requests with 5s delay.</span>\n`;
+              } else if (event.type === 'progress') {
+                if (event.status === 'SUCCESS') {
+                  logDiv.innerHTML += `<span class="success">[${event.index}/${event.total}] ${event.phone} ➔ STK Sent Successfully</span>\n`;
+                } else {
+                  logDiv.innerHTML += `<span class="error">[${event.index}/${event.total}] ${event.phone} ➔ Failed: ${JSON.stringify(event.error)}</span>\n`;
+                }
+              } else if (event.type === 'waiting') {
+                logDiv.innerHTML += `<span class="info">[WAIT] Cooling down for 5 seconds...</span>\n`;
+              } else if (event.type === 'complete') {
+                logDiv.innerHTML += `<span class="success">[DONE] All STK Push requests completed!</span>\n`;
+              }
+              logDiv.scrollTop = logDiv.scrollHeight;
+            }
+          }
+        }
+      } catch (err) {
+        logDiv.innerHTML += `<span class="error">[FATAL ERROR] ${err.message}</span>\n`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
