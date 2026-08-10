@@ -92,8 +92,8 @@ app.post('/api/batch-stk', async (req, res) => {
 
     // Enforce 5-second delay between requests (skip delay after last item)
     if (i < numbers.length - 1) {
-      sendEvent({ type: 'waiting', seconds: 5 });
-      await sleep(5000);
+      sendEvent({ type: 'waiting', seconds: 3 });
+      await sleep(3000);
     }
   }
 
